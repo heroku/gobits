@@ -50,7 +50,14 @@ func parseCredential(credential string) (Credential, error) {
 // Checker stores a set of valid credentials to be used when authenticating
 // HTTP requests using basic auth.
 type Checker struct {
-	credentials []Credential
+	credentials   []Credential
+	roleValidator RoleValidator
+}
+
+// RoleValidator providers Validate() which returns true
+// if a role has access to a particular request method.
+type RoleValidator interface {
+	Validate(role, method string) bool
 }
 
 // NewChecker returns a basic auth checker configured to use credentials
@@ -59,6 +66,11 @@ func NewChecker(credentials []Credential) *Checker {
 	return &Checker{
 		credentials: credentials,
 	}
+}
+
+// WithRoleValidator sets the roleValidator on a Checker.
+func (c *Checker) WithRoleValidator(rv RoleValidator) {
+	c.roleValidator = rv
 }
 
 // Valid is true if username and password represent acceptable credentials.

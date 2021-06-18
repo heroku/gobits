@@ -18,43 +18,175 @@ import (
 )
 
 func TestGRPCPerRPCCredentialBasicAuth(t *testing.T) {
-	l, _ := testlog.New()
-	mux := http.NewServeMux()
+	t.Run("valid creds", func(t *testing.T) {
+		l, _ := testlog.New()
+		mux := http.NewServeMux()
 
-	checker := NewChecker([]Credential{{"user", "pass"}})
+		checker := NewChecker([]Credential{{"user", "pass"}})
 
-	gSrv, hSrv := grpcserver.NewStandardH2C(
-		mux,
-		grpcserver.AuthInterceptors(
-			grpc_auth.UnaryServerInterceptor(GRPCAuthFunc(checker)),
-			grpc_auth.StreamServerInterceptor(GRPCAuthFunc(checker)),
-		),
-		grpcserver.LogEntry(l.WithField("at", "grpc")),
-	)
+		gSrv, hSrv := grpcserver.NewStandardH2C(
+			mux,
+			grpcserver.AuthInterceptors(
+				grpc_auth.UnaryServerInterceptor(GRPCAuthFunc(checker)),
+				grpc_auth.StreamServerInterceptor(GRPCAuthFunc(checker)),
+			),
+			grpcserver.LogEntry(l.WithField("at", "grpc")),
+		)
 
-	routeguide.RegisterRouteGuideServer(gSrv, &fakeServer{})
+		routeguide.RegisterRouteGuideServer(gSrv, &fakeServer{})
 
-	srv := httptest.NewServer(hSrv.Handler)
-	defer srv.Close()
+		srv := httptest.NewServer(hSrv.Handler)
+		defer srv.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	conn, err := grpcclient.DialH2CContext(
-		ctx,
-		srv.URL,
-		grpc.WithBlock(),
-		grpc.WithPerRPCCredentials(&GRPCCredentials{Username: "user", Password: "pass"}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+		conn, err := grpcclient.DialH2CContext(
+			ctx,
+			srv.URL,
+			grpc.WithBlock(),
+			grpc.WithPerRPCCredentials(&GRPCCredentials{Username: "user", Password: "pass"}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	client := routeguide.NewRouteGuideClient(conn)
-	_, err = client.GetFeature(context.Background(), &routeguide.Point{})
-	if err != nil {
-		t.Fatal(err)
-	}
+		client := routeguide.NewRouteGuideClient(conn)
+		_, err = client.GetFeature(context.Background(), &routeguide.Point{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("invalid username and password", func(t *testing.T) {
+		l, _ := testlog.New()
+		mux := http.NewServeMux()
+
+		checker := NewChecker([]Credential{{"user", "nope"}})
+
+		gSrv, hSrv := grpcserver.NewStandardH2C(
+			mux,
+			grpcserver.AuthInterceptors(
+				grpc_auth.UnaryServerInterceptor(GRPCAuthFunc(checker)),
+				grpc_auth.StreamServerInterceptor(GRPCAuthFunc(checker)),
+			),
+			grpcserver.LogEntry(l.WithField("at", "grpc")),
+		)
+
+		routeguide.RegisterRouteGuideServer(gSrv, &fakeServer{})
+
+		srv := httptest.NewServer(hSrv.Handler)
+		defer srv.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		conn, err := grpcclient.DialH2CContext(
+			ctx,
+			srv.URL,
+			grpc.WithBlock(),
+			grpc.WithPerRPCCredentials(&GRPCCredentials{Username: "user", Password: "pass"}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		client := routeguide.NewRouteGuideClient(conn)
+		_, err = client.GetFeature(context.Background(), &routeguide.Point{})
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("valid creds with role validator", func(t *testing.T) {
+		l, _ := testlog.New()
+		mux := http.NewServeMux()
+
+		checker := NewChecker([]Credential{{"user", "pass"}})
+		checker.WithRoleValidator(&fakeRoleValidator{valid: true})
+
+		gSrv, hSrv := grpcserver.NewStandardH2C(
+			mux,
+			grpcserver.AuthInterceptors(
+				grpc_auth.UnaryServerInterceptor(GRPCAuthFunc(checker)),
+				grpc_auth.StreamServerInterceptor(GRPCAuthFunc(checker)),
+			),
+			grpcserver.LogEntry(l.WithField("at", "grpc")),
+		)
+
+		routeguide.RegisterRouteGuideServer(gSrv, &fakeServer{})
+
+		srv := httptest.NewServer(hSrv.Handler)
+		defer srv.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		conn, err := grpcclient.DialH2CContext(
+			ctx,
+			srv.URL,
+			grpc.WithBlock(),
+			grpc.WithPerRPCCredentials(&GRPCCredentials{Username: "user", Password: "pass"}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		client := routeguide.NewRouteGuideClient(conn)
+		_, err = client.GetFeature(context.Background(), &routeguide.Point{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("invalid role", func(t *testing.T) {
+		l, _ := testlog.New()
+		mux := http.NewServeMux()
+
+		checker := NewChecker([]Credential{{"user", "pass"}})
+		checker.WithRoleValidator(&fakeRoleValidator{valid: false})
+
+		gSrv, hSrv := grpcserver.NewStandardH2C(
+			mux,
+			grpcserver.AuthInterceptors(
+				grpc_auth.UnaryServerInterceptor(GRPCAuthFunc(checker)),
+				grpc_auth.StreamServerInterceptor(GRPCAuthFunc(checker)),
+			),
+			grpcserver.LogEntry(l.WithField("at", "grpc")),
+		)
+
+		routeguide.RegisterRouteGuideServer(gSrv, &fakeServer{})
+
+		srv := httptest.NewServer(hSrv.Handler)
+		defer srv.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		conn, err := grpcclient.DialH2CContext(
+			ctx,
+			srv.URL,
+			grpc.WithBlock(),
+			grpc.WithPerRPCCredentials(&GRPCCredentials{Username: "user", Password: "pass"}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		client := routeguide.NewRouteGuideClient(conn)
+		_, err = client.GetFeature(context.Background(), &routeguide.Point{})
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+}
+
+type fakeRoleValidator struct {
+	valid bool
+}
+
+func (frv *fakeRoleValidator) Validate(_, _ string) bool {
+	return frv.valid
 }
 
 type fakeServer struct {

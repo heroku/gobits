@@ -3,6 +3,7 @@ package basicauth
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"strings"
 
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -32,6 +33,22 @@ func GRPCAuthFunc(checker *Checker) func(ctx context.Context) (context.Context, 
 		if !checker.Valid(user, pass) {
 			//TODO: SA1019: grpc.Errorf is deprecated: use status.Errorf instead.  (staticcheck)
 			return nil, grpc.Errorf(codes.PermissionDenied, "permission denied") //nolint:staticcheck
+		}
+
+		if checker.roleValidator != nil {
+			// According to grpc docs, this method will be in the form:
+			// "/service/method".
+			method, ok := grpc.Method(ctx)
+			if !ok {
+				return nil, grpc.Errorf(codes.PermissionDenied, "permission denied. no grpc method found on context") //nolint:staticcheck
+			}
+
+			if !checker.roleValidator.Validate(user, method) {
+				return nil, grpc.Errorf( //nolint:staticcheck
+					codes.PermissionDenied,
+					fmt.Sprintf("permission denied. user \"%s\" does not have access to \"%s\"", user, method),
+				)
+			}
 		}
 
 		return ctx, nil
